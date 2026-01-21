@@ -15,8 +15,8 @@
 #define HTTP_RETRY_DELAY_MS 2000
 
 // Refresh Intervals
-#define REFRESH_INTERVAL_DAY_MS 600000      // 10 minutes (default)
-#define REFRESH_INTERVAL_NIGHT_MS 3600000   // 60 minutes (default)
+#define REFRESH_INTERVAL_DAY_MS 60000      // 1 minute
+#define REFRESH_INTERVAL_NIGHT_MS 600000   // 10 minutes
 #define NIGHT_START_HOUR 22
 #define NIGHT_END_HOUR 5
 

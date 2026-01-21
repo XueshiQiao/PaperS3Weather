@@ -1,11 +1,4 @@
-/*
-   Adapted from Bastelschlumpf/M5PaperWeather for M5Paper S3
-   Modified to use M5Unified instead of M5EPD
-   Uses Open-Meteo API instead of OpenWeatherMap
-
-   Version 1.12 - Refactored for better modularity and performance
-*/
-
+#include "Logger.h"
 #include <M5Unified.h>
 #include <WiFi.h>
 #include <Preferences.h>
@@ -19,7 +12,7 @@
 
 // Global objects
 Preferences preferences;
-M5Canvas canvas(&M5.Display);
+M5GFX& canvas = M5.Display; // Use M5.Display directly as 'canvas'
 WeatherData currentWeather;
 
 // Configuration state
@@ -31,23 +24,75 @@ String cityName = DEFAULT_CITY;
 unsigned long lastRefreshTime = 0;
 int refreshCounter = 0;
 
-void enterDeepSleep(unsigned long sleepTimeMs) {
-    Serial.printf("Entering deep sleep for %lu ms (%lu minutes)\n",
-                  sleepTimeMs, sleepTimeMs / 60000);
+// Helper to manage the update process
+void refreshWeather() {
+    my_log("--- Starting Weather Refresh ---");
 
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
+    if (WiFi.status() != WL_CONNECTED) {
+        my_log("WiFi not connected, attempting to reconnect...");
+        setupWiFi(); // Re-run connection logic
+    }
 
-    // Configure wakeup timer
-    esp_sleep_enable_timer_wakeup(sleepTimeMs * 1000);
+    if (WiFi.status() == WL_CONNECTED) {
+        my_log("WiFi Connected. Syncing time...");
+        // Sync time if needed (important after sleep)
+        configTime(TIMEZONE_OFFSET_HOURS * 3600, 0, NTP_SERVER_1, NTP_SERVER_2);
 
-    // Flush serial before sleep
-    Serial.flush();
+        float latitude, longitude;
+        loadPreferences(latitude, longitude, cityName);
 
-    // Enter deep sleep
-    esp_deep_sleep_start();
+        my_log_f("Fetching weather for: %.4f, %.4f (%s)",
+                     latitude, longitude, cityName.c_str());
+
+        bool fetchSuccess = false;
+        for (int retry = 0; retry < HTTP_RETRY_ATTEMPTS; retry++) {
+            if (retry > 0) {
+                my_log_f("Weather fetch retry %d/%d...", retry + 1, HTTP_RETRY_ATTEMPTS);
+                delay(HTTP_RETRY_DELAY_MS);
+            }
+
+            if (fetchWeatherData(latitude, longitude)) {
+                my_log("Weather fetch successful! Drawing to display...");
+                displayWeather();
+                my_log("Display update command sent.");
+                lastRefreshTime = millis();
+                fetchSuccess = true;
+                break;
+            } else {
+                my_log("Weather fetch failed.");
+            }
+        }
+
+        if (!fetchSuccess) {
+            my_log("All weather fetch attempts failed!");
+        }
+    } else {
+        my_log("WiFi failed to connect.");
+    }
+    my_log("--- Refresh Complete ---");
 }
 
+void enterLightSleep(unsigned long sleepTimeMs) {
+    my_log_f("Preparing for LIGHT sleep for %lu ms (%lu minutes)",
+                  sleepTimeMs, sleepTimeMs / 60000);
+
+    // Ensure display operations are finished before sleeping
+    if (M5.Display.displayBusy()) {
+        my_log("Waiting for display to finish...");
+        M5.Display.waitDisplay();
+    }
+    my_log("complete display");
+
+    // 1. Configure wakeup source
+    esp_sleep_enable_timer_wakeup(sleepTimeMs * 1000);
+
+    Serial.flush();
+
+    // 2. Enter Light Sleep
+    esp_light_sleep_start();
+
+    my_log("Woke up from Light Sleep!");
+}
 void setup() {
     auto cfg = M5.config();
     cfg.serial_baudrate = 115200;
@@ -56,194 +101,70 @@ void setup() {
     // Small delay to ensure display is fully initialized after wake
     delay(100);
 
-    Serial.println("\n=================================");
-    Serial.println("PaperS3Weather " + String(VERSION));
-    Serial.println("System Starting...");
+    my_log("=================================");
+    my_log("PaperS3Weather " + String(VERSION));
+    my_log("System Starting (Light Sleep Mode)...");
 
     // Force clear display immediately to prove we have control
     M5.Display.startWrite();
     M5.Display.fillScreen(TFT_WHITE);
     M5.Display.endWrite();
     M5.Display.display();
-    Serial.println("Display cleared");
-
-    Serial.println("Based on Bastelschlumpf design");
-    Serial.println("=================================");
-
-    // Reinitialize canvas after M5.Display is ready
-    // This fixes the automatic wake display issue
-    canvas.setColorDepth(16);
-    canvas.createSprite(1, 1);  // Create minimal sprite to initialize
-    canvas.deleteSprite();       // Clean up
+    my_log("Display cleared");
 
     // Configure display
     M5.Display.setRotation(1);
+
+    // Show splash
     M5.Display.startWrite();
     M5.Display.fillScreen(TFT_WHITE);
     M5.Display.setTextColor(TFT_BLACK);
     M5.Display.setTextSize(2);
     M5.Display.setCursor(20, 20);
     M5.Display.println("PaperS3Weather " + String(VERSION));
-    M5.Display.setCursor(20, 50);
     M5.Display.println("Initializing...");
     M5.Display.endWrite();
     M5.Display.display();
+    delay(1000);
 
-    Serial.println("Splash screen displayed");
-    delay(2000);
-
+    // Initial Connection
     setupWiFi();
 
-    // Configure time via NTP if connected
-    if (WiFi.status() == WL_CONNECTED) {
-        configTime(TIMEZONE_OFFSET_HOURS * 3600, 0, NTP_SERVER_1, NTP_SERVER_2);
-        Serial.println("Time configured via NTP");
+    // Initial Migration Check
+    preferences.begin("weather", false);
+    if (preferences.getInt("day_interval", 1) == 10) {
+        my_log("Migrating refresh interval from 10 to 1 min...");
+        preferences.putInt("day_interval", 1);
     }
+    preferences.end();
 
-    // Load preferences and fetch weather
-    if (WiFi.status() == WL_CONNECTED) {
-        float latitude, longitude;
-        loadPreferences(latitude, longitude, cityName);
-
-        Serial.printf("Fetching weather for: %.4f, %.4f (%s)\n",
-                     latitude, longitude, cityName.c_str());
-
-        bool fetchSuccess = false;
-        for (int retry = 0; retry < HTTP_RETRY_ATTEMPTS; retry++) {
-            if (retry > 0) {
-                Serial.printf("Weather fetch retry %d/%d...\n", retry + 1, HTTP_RETRY_ATTEMPTS);
-                delay(HTTP_RETRY_DELAY_MS);
-            }
-
-            if (fetchWeatherData(latitude, longitude)) {
-                Serial.println("Weather fetch successful!");
-                displayWeather();
-                lastRefreshTime = millis();
-                fetchSuccess = true;
-                break;
-            }
-        }
-
-        if (!fetchSuccess) {
-            Serial.println("All weather fetch attempts failed!");
-            M5.Display.startWrite();
-            M5.Display.fillScreen(TFT_WHITE);
-            M5.Display.setTextColor(TFT_BLACK);
-            M5.Display.setCursor(20, 20);
-            M5.Display.println("Failed to fetch weather");
-            M5.Display.println("Will retry in 1 minute");
-            M5.Display.endWrite();
-            M5.Display.display();
-            // Retry sooner on failure
-            lastRefreshTime = millis() - REFRESH_INTERVAL_DAY_MS + 60000;
-        }
-    } else {
-        M5.Display.startWrite();
-        M5.Display.fillScreen(TFT_WHITE);
-        M5.Display.setTextColor(TFT_BLACK);
-        M5.Display.setCursor(20, 20);
-        M5.Display.println("No WiFi - Touch to configure");
-        M5.Display.endWrite();
-        M5.Display.display();
-        lastRefreshTime = millis();
-    }
-
-    Serial.println("Setup complete!");
+    my_log("Setup complete!");
 }
 
 void loop() {
-    static bool hasWaited = false;
+    // 1. Refresh Data
+    refreshWeather();
 
-    // Check WHY we woke up - only show interaction window on manual reset
-    if (!hasWaited) {
-        esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-
-        // ESP_SLEEP_WAKEUP_UNDEFINED means: power on or reset button pressed
-        // ESP_SLEEP_WAKEUP_TIMER means: automatic wake from deep sleep
-        if (wakeup_reason == ESP_SLEEP_WAKEUP_UNDEFINED) {
-            // Manual reset/power on - give user time to interact
-            Serial.println("\n*** Manual wake detected (reset button or power on) ***");
-            Serial.println("*** Waiting 30 seconds for user interaction ***");
-            Serial.println("*** Tap bottom-right corner of screen for CONFIG ***");
-
-            unsigned long startWait = millis();
-            const unsigned long waitDuration = USER_INTERACTION_TIMEOUT_MS;
-            unsigned long lastSerialUpdate = 0;
-
-            while (millis() - startWait < waitDuration) {
-                M5.update();  // Update touch state
-
-                // Check for touch in bottom-right corner (CFG button area)
-                auto touch = M5.Touch.getDetail();
-                if (touch.wasPressed()) {
-                    int touchX = touch.x;
-                    int touchY = touch.y;
-
-                    // Check if touch is in CFG area (bottom-right corner)
-                    if (touchX > (SCREEN_WIDTH - CFG_BUTTON_TOUCH_WIDTH) &&
-                        touchY > (SCREEN_HEIGHT - CFG_BUTTON_TOUCH_HEIGHT)) {
-                        Serial.println("\n*** CONFIG button pressed! ***");
-                        M5.Display.startWrite();
-                        M5.Display.fillScreen(TFT_WHITE);
-                        M5.Display.setTextSize(2);
-                        M5.Display.setCursor(20, 20);
-                        M5.Display.println("Opening Configuration...");
-                        M5.Display.println("\nConnect to:");
-                        M5.Display.println("  M5Paper-Weather");
-                        M5.Display.println("Password: configure");
-                        M5.Display.println("URL: 192.168.4.1");
-                        M5.Display.endWrite();
-                        M5.Display.display();
-
-                        // Disconnect from WiFi and start config portal
-                        WiFi.disconnect();
-                        delay(500);
-                        startConfigPortal();
-
-                        // After config, restart
-                        ESP.restart();
-                    }
-                }
-
-                // Update serial countdown every second
-                unsigned long remaining = (waitDuration - (millis() - startWait)) / 1000;
-                if (millis() - lastSerialUpdate >= 1000) {
-                    Serial.printf("Waiting for config tap... %lu seconds remaining\n", remaining);
-                    lastSerialUpdate = millis();
-                }
-
-                delay(100);  // Small delay to reduce CPU usage
-            }
-
-            Serial.println("*** Wait period ended, entering sleep mode ***\n");
-        } else {
-            // Automatic wake from timer - skip interaction window
-            Serial.println("\n*** Automatic wake from timer - skipping interaction window ***");
-            // Give e-ink display time to complete refresh before sleeping
-            Serial.println("*** Waiting 3 seconds for display to refresh ***");
-            delay(3000);
-        }
-
-        hasWaited = true;
-    }
-
+    // 2. Calculate Sleep Duration
     unsigned long sleepTime = getRefreshInterval();
 
-    // Get current settings for display
+    // Get current settings for debug
     preferences.begin("weather", true);
     int nightStart = preferences.getInt("night_start", 22);
     int nightEnd = preferences.getInt("night_end", 5);
     preferences.end();
 
-    Serial.println("=================================");
-    Serial.printf("Night mode: %s\n", nightModeSleep ? "ENABLED" : "DISABLED");
+    my_log("=================================");
+    my_log_f("Night mode: %s", nightModeSleep ? "ENABLED" : "DISABLED");
     if (nightModeSleep) {
-        Serial.printf("Night hours: %d:00 - %d:00\n", nightStart, nightEnd);
+        my_log_f("Night hours: %d:00 - %d:00", nightStart, nightEnd);
     }
-    Serial.printf("Current time is: %s\n", isNightTime() ? "NIGHT" : "DAY");
-    Serial.printf("Refresh interval: %lu minutes\n", sleepTime / 60000);
-    Serial.printf("Refresh counter: %d/6\n", refreshCounter % 6);
-    Serial.println("=================================");
+    my_log_f("Current time is: %s", isNightTime() ? "NIGHT" : "DAY");
+    my_log_f("Refresh interval: %lu minutes", sleepTime / 60000);
+    my_log("=================================");
 
-    enterDeepSleep(sleepTime);
+    // 3. Sleep
+    enterLightSleep(sleepTime);
+
+    // Loop repeats immediately after wake...
 }

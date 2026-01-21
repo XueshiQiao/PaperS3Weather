@@ -3,17 +3,27 @@
 #include "utils.h"
 #include "Icons.h"
 #include <WiFi.h>
+#include "Logger.h"
 
 extern WeatherData currentWeather;
-extern M5Canvas canvas;
+// canvas is now extern from utils.h/main.cpp
 extern String cityName;
 
-void drawIcon(int x, int y, const uint8_t *icon, int dx, int dy, bool highContrast) {
+void drawIcon(int x, int y, const uint8_t *icon, int dx, int dy, bool highContrast, float scale) {
     const uint16_t *icon16 = (const uint16_t *)icon;
+    int scaledDX = (int)(dx * scale);
+    int scaledDY = (int)(dy * scale);
 
-    for (int yi = 0; yi < dy; yi++) {
-        for (int xi = 0; xi < dx; xi++) {
-            uint16_t pixel = icon16[yi * dx + xi];
+    for (int yi = 0; yi < scaledDY; yi++) {
+        for (int xi = 0; xi < scaledDX; xi++) {
+            // Map scaled coordinates back to source coordinates
+            int srcX = (int)(xi / scale);
+            int srcY = (int)(yi / scale);
+
+            if (srcX >= dx) srcX = dx - 1;
+            if (srcY >= dy) srcY = dy - 1;
+
+            uint16_t pixel = icon16[srcY * dx + srcX];
             int grayscale = 15 - (pixel / ICON_GRAYSCALE_DIVISOR);
 
             if (highContrast) {
@@ -315,208 +325,118 @@ void drawTempGraph(int x, int y, int dx, int dy, String title, int xMin, int xMa
     }
 }
 
-void drawCurrentConditions(int x, int y, int dx, int dy) {
+void drawBigClock(int x, int y, int dx, int dy) {
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) return;
+
+    char timeStr[6];
+    sprintf(timeStr, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+
+    // Draw Time centered in the full panel
+    canvas.setFont(&fonts::FreeSansBold24pt7b);
     canvas.setTextSize(3);
-    canvas.setTextDatum(TC_DATUM);
-    canvas.drawString("Current", x + dx / 2, y + 7);
+    canvas.setTextDatum(MC_DATUM);
+
+    // Center of the panel + offset
+    int contentCenterY = y + (dy / 2) + 15; // Moved down 15px
+    canvas.drawString(timeStr, x + dx / 2, contentCenterY);
+
+    canvas.setFont(nullptr);
     canvas.setTextDatum(TL_DATUM);
-    canvas.drawLine(x, y + PANEL_TITLE_HEIGHT, x + dx, y + PANEL_TITLE_HEIGHT, TFT_BLACK);
+}
 
-    int spacing = dx / 4;
+void drawCurrentConditions(int x, int y, int dx, int dy) {
+    // Layout Constants
+    int centerLine = x + dx / 2;
+    int contentCenterY = y + (dy / 2) + 15; // Moved content center down 15px
 
-    // Draw main temperature (large font)
+    // --- ROW 1: Icon & Temp (Side by Side) ---
+    // Icon Left, Temp Right. Bottom aligned.
+
     canvas.setFont(&fonts::FreeSansBold24pt7b);
     canvas.setTextSize(2);
-    canvas.setTextDatum(TC_DATUM);
-
     String tempNum = String((int)currentWeather.temperature);
-    int mainTempX = x + spacing;
-    int mainTempY = y + MAIN_TEMP_Y_OFFSET;
-    canvas.drawString(tempNum, mainTempX, mainTempY);
+    int tempWidth = canvas.textWidth(tempNum);
 
-    // Draw degree symbol for main temperature
-    int tempWidth = canvas.textWidth(tempNum) * 2;
-    int degreeX = mainTempX + tempWidth / 2 - TEMP_DEGREE_OFFSET;
-    int degreeY = mainTempY + 13;
-    drawDegreeSymbol(degreeX, degreeY, TEMP_DEGREE_RADIUS_LARGE);
+    // Scale icon to match temperature height (~96px)
+    float iconScale = 1.5;
+    int scaledIconSize = (int)(WEATHER_ICON_SIZE * iconScale);
+    int gap = 20;
+
+    // Total width to center the group
+    int totalBlockWidth = scaledIconSize + gap + tempWidth + 15; // +15 for degree symbol space
+
+    int startX = centerLine - (totalBlockWidth / 2);
+    // Move the block up slightly to leave room for text below
+    int blockBottomY = contentCenterY - 20;
+
+    // 1. Draw Icon (Left)
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) timeinfo.tm_hour = 12;
+    bool isDay = isDaytime(timeinfo.tm_hour);
+    const uint8_t* weatherIcon = getWeatherIcon(currentWeather.weatherCode, isDay);
+
+    // Icon drawn from top-left.
+    drawIcon(startX, blockBottomY - scaledIconSize, weatherIcon, WEATHER_ICON_SIZE, WEATHER_ICON_SIZE, true, iconScale);
+
+    // 2. Draw Temp (Right of Icon, Bottom Aligned)
+    canvas.setTextDatum(BL_DATUM);
+    canvas.drawString(tempNum, startX + scaledIconSize + gap, blockBottomY + 8); // +8 visual adjustment for font baseline
+
+    // 3. Draw Degree Symbol
+    drawDegreeSymbol(startX + scaledIconSize + gap + tempWidth + 8, blockBottomY - 65, TEMP_DEGREE_RADIUS_LARGE);
 
     canvas.setFont(nullptr);
     canvas.setTextFont(1);
-    canvas.setTextSize(1);
 
-    // Draw weather icon
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
-        timeinfo.tm_hour = 12;
-    }
-    bool isDay = isDaytime(timeinfo.tm_hour);
-
-    int iconX = x + dx - spacing - 25;
-    int iconY = mainTempY - 2;
-    const uint8_t* weatherIcon = getWeatherIcon(currentWeather.weatherCode, isDay);
-    drawIcon(iconX, iconY, weatherIcon, WEATHER_ICON_SIZE, WEATHER_ICON_SIZE, true);
-
-    // Draw condition text
+    // --- ROW 2: Condition Text ---
+    canvas.setTextSize(3);
+    canvas.setTextDatum(TC_DATUM);
     String condition = getWeatherConditionText(currentWeather.weatherCode);
+
+    if (canvas.textWidth(condition) > dx - 20) canvas.setTextSize(2);
+
+    // Position below the icon/temp block
+    canvas.drawString(condition, centerLine, blockBottomY + 25);
+
+    // --- ROW 3: Details (Feels Like | High/Low) ---
+    int detailsY = y + dy - 30; // Near bottom
+    int quarterLeft = x + dx / 4;
+    int quarterRight = x + (dx * 3) / 4;
+
+    String feelsStr = "Feels " + String((int)currentWeather.apparentTemperature);
+    String rangeStr = "H:" + String((int)currentWeather.todayMaxTemp) + " L:" + String((int)currentWeather.todayMinTemp);
+
     canvas.setTextDatum(TC_DATUM);
-
-    int conditionY = mainTempY + CONDITION_Y_OFFSET;
-    int availableWidth = dx - 20;
-    int textWidth = canvas.textWidth(condition) * 3;
-
-    if (textWidth > availableWidth) {
-        canvas.setTextSize(2);
-    } else {
-        canvas.setTextSize(3);
-    }
-    canvas.drawString(condition, x + dx / 2, conditionY);
-
-    // Draw "Feels Like" temperature
-    int feelsLikeY = y + FEELS_LIKE_Y_OFFSET;
-
     canvas.setTextSize(2);
-    canvas.setTextDatum(TL_DATUM);
-    String feelsLikeLabel = "Feels Like:";
-    int labelX = x + spacing - 35;
-    canvas.drawString(feelsLikeLabel, labelX, feelsLikeY);
 
-    int labelWidth = canvas.textWidth(feelsLikeLabel) * 2;
-    int feelsLikeTempX = labelX + labelWidth - 130;
+    // Left side
+    canvas.drawString(feelsStr, quarterLeft, detailsY);
+    drawDegreeSymbol(quarterLeft + canvas.textWidth(feelsStr)/2 + 5, detailsY - 8, FEELS_LIKE_DEGREE_RADIUS);
 
-    canvas.setTextSize(4);
-    canvas.setTextDatum(TL_DATUM);
-    String feelsTemp = String((int)currentWeather.apparentTemperature);
-    canvas.drawString(feelsTemp, feelsLikeTempX, feelsLikeY - 8);
-
-    // Draw degree symbol for "Feels Like"
-    int tempNumWidth = canvas.textWidth(feelsTemp);
-    int feelsLikeDegX = feelsLikeTempX + tempNumWidth + 3;
-    int feelsLikeDegY = feelsLikeY - 3;
-    drawDegreeSymbol(feelsLikeDegX, feelsLikeDegY, FEELS_LIKE_DEGREE_RADIUS);
-
-    // Draw today's low/high temperatures
-    canvas.setTextSize(3);
-    canvas.setTextDatum(TC_DATUM);
-
-    String lowTemp = "L:" + String((int)currentWeather.todayMinTemp);
-    String highTemp = "H:" + String((int)currentWeather.todayMaxTemp);
-
-    int tempTextY = y + TODAY_TEMP_Y_OFFSET;
-
-    canvas.drawString(lowTemp, x + spacing, tempTextY);
-    canvas.drawString(highTemp, x + dx - spacing, tempTextY);
-
-    // Draw degree symbols for low/high
-    int lowDegX = x + spacing + canvas.textWidth(lowTemp) / 2 + 5;
-    int highDegX = x + dx - spacing + canvas.textWidth(highTemp) / 2 + 5;
-    int degY = tempTextY + 1;
-
-    drawDegreeSymbol(lowDegX, degY, TODAY_TEMP_DEGREE_RADIUS);
-    drawDegreeSymbol(highDegX, degY, TODAY_TEMP_DEGREE_RADIUS);
-
-    canvas.setTextDatum(TL_DATUM);
-}
-
-void drawSunInfo(int x, int y, int dx, int dy) {
-    canvas.setTextSize(3);
-    canvas.setTextDatum(TC_DATUM);
-    canvas.drawString("Sun & Moon", x + dx / 2, y + 7);
-    canvas.setTextDatum(TL_DATUM);
-    canvas.drawLine(x, y + PANEL_TITLE_HEIGHT, x + dx, y + PANEL_TITLE_HEIGHT, TFT_BLACK);
-
-    // Draw sunrise
-    canvas.setTextSize(3);
-    drawIcon(x + 25, y + 50, SUNRISE64x64, WEATHER_ICON_SIZE, WEATHER_ICON_SIZE, false);
-    if (currentWeather.sunriseTime.length() > 0) {
-        canvas.drawString(currentWeather.sunriseTime, x + 100, y + 75);
-    }
-
-    // Draw sunset
-    drawIcon(x + 25, y + 125, SUNSET64x64, WEATHER_ICON_SIZE, WEATHER_ICON_SIZE, false);
-    if (currentWeather.sunsetTime.length() > 0) {
-        canvas.drawString(currentWeather.sunsetTime, x + 100, y + 150);
-    }
-
-    // Draw moon phase
-    float moonPhase = getMoonPhase();
-    canvas.setTextSize(2);
-    canvas.setTextDatum(TC_DATUM);
-    String phaseText = "";
-    if (moonPhase < MOON_PHASE_NEW_MIN || moonPhase > MOON_PHASE_NEW_MAX) phaseText = "New";
-    else if (moonPhase < MOON_PHASE_WAXING_CRES) phaseText = "Waxing Cres";
-    else if (moonPhase < MOON_PHASE_FIRST_QTR) phaseText = "First Qtr";
-    else if (moonPhase < MOON_PHASE_WAXING_GIB) phaseText = "Waxing Gib";
-    else if (moonPhase < MOON_PHASE_FULL) phaseText = "Full";
-    else if (moonPhase < MOON_PHASE_WANING_GIB) phaseText = "Waning Gib";
-    else if (moonPhase < MOON_PHASE_LAST_QTR) phaseText = "Last Qtr";
-    else phaseText = "Waning Cres";
-
-    canvas.drawString("Moon: " + phaseText, x + dx / 2, y + 210);
-    canvas.setTextDatum(TL_DATUM);
-}
-
-void drawWindInfo(int x, int y, int dx, int dy) {
-    canvas.setTextSize(3);
-    canvas.drawString("Wind", x + dx / 2 - 40, y + 7);
-    canvas.drawLine(x, y + PANEL_TITLE_HEIGHT, x + dx, y + PANEL_TITLE_HEIGHT, TFT_BLACK);
-
-    drawWindCompass(x + dx / 2, y + dy / 2 + 20, currentWeather.windDir, currentWeather.windSpeed, COMPASS_RADIUS);
-}
-
-void drawM5PaperInfo(int x, int y, int dx, int dy) {
-    canvas.setTextSize(3);
-    canvas.setTextDatum(TC_DATUM);
-    canvas.drawString("M5Paper S3", x + dx / 2, y + 7);
-    canvas.setTextDatum(TL_DATUM);
-    canvas.drawLine(x, y + PANEL_TITLE_HEIGHT, x + dx, y + PANEL_TITLE_HEIGHT, TFT_BLACK);
-
-    // Draw date and time
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) {
-        char dateStr[16], timeStr[16];
-        sprintf(dateStr, "%02d.%02d.%04d", timeinfo.tm_mday, timeinfo.tm_mon + 1, timeinfo.tm_year + 1900);
-        sprintf(timeStr, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-
-        canvas.setTextSize(3);
-        canvas.setTextDatum(TC_DATUM);
-        canvas.drawString(dateStr, x + dx / 2, y + 55);
-        canvas.drawString(timeStr, x + dx / 2, y + 95);
-        canvas.setTextDatum(TL_DATUM);
-
-        canvas.setTextSize(2);
-        canvas.setTextDatum(TC_DATUM);
-        canvas.drawString("updated", x + dx / 2, y + 120);
-        canvas.setTextDatum(TL_DATUM);
-    }
-
-    // Draw internal temperature and humidity
-    float sensorTemp = readInternalTemperature();
-    float sensorHumid = readInternalHumidity();
-
-    float displayTemp = (sensorTemp > SENSOR_ERROR_VALUE) ? sensorTemp : currentWeather.temperature;
-    float displayHumid = (sensorHumid > SENSOR_ERROR_VALUE) ? sensorHumid : currentWeather.humidity;
-
-    canvas.setTextSize(3);
-    drawIcon(x + 35, y + 140, TEMPERATURE64x64, WEATHER_ICON_SIZE, WEATHER_ICON_SIZE, false);
-    canvas.drawString(formatTemp(displayTemp), x + 35, y + 210);
-
-    drawIcon(x + 145, y + 140, HUMIDITY64x64, WEATHER_ICON_SIZE, WEATHER_ICON_SIZE, false);
-    canvas.drawString(String((int)displayHumid) + "%", x + 150, y + 210);
+    // Right side
+    canvas.drawString(rangeStr, quarterRight, detailsY);
 }
 
 void displayWeather() {
+    my_log("displayWeather: Waking up display...");
+    M5.Display.wakeup();
+    delay(100);
+    M5.Display.setRotation(1);
+
+    // Set update mode for text and graphics
+    M5.Display.setEpdMode(epd_mode_t::epd_text);
+
     M5.Display.startWrite();
 
-    if (!canvas.createSprite(SCREEN_WIDTH, SCREEN_HEIGHT)) {
-        Serial.println("ERROR: Failed to allocate canvas memory!");
-        M5.Display.endWrite();
-        return;
-    }
-
-    canvas.fillSprite(TFT_WHITE);
+    my_log("displayWeather: Clearing screen...");
+    // Direct Draw: Clear the screen first (replaces fillSprite)
+    canvas.fillScreen(TFT_WHITE);
     canvas.setTextColor(TFT_BLACK, TFT_WHITE);
     canvas.setTextDatum(TL_DATUM);
     canvas.setTextSize(2);
+
+    my_log("displayWeather: Drawing UI elements...");
 
     // Draw header
     canvas.setTextSize(2);
@@ -550,16 +470,15 @@ void displayWeather() {
     // Draw main border
     canvas.drawRect(PANEL_BORDER, HEADER_HEIGHT, SCREEN_WIDTH - 28, SCREEN_HEIGHT - 43, TFT_BLACK);
 
-    // Draw top row panels (Current, Wind, Sun, M5Paper Info)
-    canvas.drawRect(PANEL_SPACING, PANEL_TITLE_HEIGHT, SCREEN_WIDTH - 30, 251, TFT_BLACK);
-    canvas.drawLine(232, PANEL_TITLE_HEIGHT, 232, 286, TFT_BLACK);
-    canvas.drawLine(465, PANEL_TITLE_HEIGHT, 465, 286, TFT_BLACK);
-    canvas.drawLine(697, PANEL_TITLE_HEIGHT, 697, 286, TFT_BLACK);
+    // Draw top row panels (Big Clock on Left, Weather on Right)
+    int totalWidth = SCREEN_WIDTH - 30;
+    int halfWidth = totalWidth / 2;
 
-    drawCurrentConditions(PANEL_SPACING, PANEL_TITLE_HEIGHT, 217, 251);
-    drawWindInfo(232, PANEL_TITLE_HEIGHT, 233, 251);
-    drawSunInfo(465, PANEL_TITLE_HEIGHT, 232, 251);
-    drawM5PaperInfo(697, PANEL_TITLE_HEIGHT, 245, 251);
+    canvas.drawRect(PANEL_SPACING, PANEL_TITLE_HEIGHT, totalWidth, 251, TFT_BLACK);
+    canvas.drawLine(PANEL_SPACING + halfWidth, PANEL_TITLE_HEIGHT, PANEL_SPACING + halfWidth, 286, TFT_BLACK);
+
+    drawBigClock(PANEL_SPACING, PANEL_TITLE_HEIGHT, halfWidth, 251);
+    drawCurrentConditions(PANEL_SPACING + halfWidth, PANEL_TITLE_HEIGHT, halfWidth, 251);
 
     // Draw hourly forecast row
     canvas.drawRect(PANEL_SPACING, 286, SCREEN_WIDTH - 30, 122, TFT_BLACK);
@@ -589,10 +508,14 @@ void displayWeather() {
     drawGraph(479, 408, 232, 122, "Humidity (%)", 0, 7, 0, 100, hourlyHumidityArray);
     drawGraph(711, 408, 232, 122, "Pressure (hPa)", 0, 7, 980, 1040, hourlyPressureArray);
 
-    // Push to display
-    canvas.pushSprite(0, 0);
-    canvas.deleteSprite();
 
     M5.Display.endWrite();
+    my_log("displayWeather: Triggering EPD refresh...");
     M5.Display.display();
+
+    // WAIT for the E-Ink refresh to complete using the standard API
+    my_log("displayWeather: Waiting for display refresh...");
+    // may takes 1 seconds for deep refresh
+    M5.Display.waitDisplay();
+    my_log("displayWeather: Refresh complete.");
 }

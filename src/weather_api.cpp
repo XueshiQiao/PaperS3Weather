@@ -1,5 +1,6 @@
 #include "weather_api.h"
 #include "constants.h"
+#include "Logger.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -9,7 +10,7 @@ extern WeatherData currentWeather;
 
 bool fetchWeatherData(float latitude, float longitude) {
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("WiFi not connected");
+        my_log("WiFi not connected");
         return false;
     }
 
@@ -26,7 +27,7 @@ bool fetchWeatherData(float latitude, float longitude) {
 
     for (int retry = 0; retry < HTTP_RETRY_ATTEMPTS; retry++) {
         if (retry > 0) {
-            Serial.printf("Retry attempt %d/%d...\n", retry + 1, HTTP_RETRY_ATTEMPTS);
+            my_log_f("Retry attempt %d/%d...", retry + 1, HTTP_RETRY_ATTEMPTS);
             delay(HTTP_RETRY_DELAY_MS);
         }
 
@@ -52,12 +53,12 @@ bool fetchWeatherData(float latitude, float longitude) {
                 currentWeather.precipitation = doc["current"]["precipitation"];
                 currentWeather.weatherCode = doc["current"]["weather_code"];
 
-                Serial.println("\n=== Current Conditions from API ===");
-                Serial.printf("Temperature: %.1f\n", currentWeather.temperature);
-                Serial.printf("Feels Like: %.1f\n", currentWeather.apparentTemperature);
-                Serial.printf("Humidity: %.0f%%\n", currentWeather.humidity);
-                Serial.printf("Wind: %.1f @ %.0f°\n", currentWeather.windSpeed, currentWeather.windDir);
-                Serial.printf("Weather Code: %d\n", currentWeather.weatherCode);
+                my_log("=== Current Conditions from API ===");
+                my_log_f("Temperature: %.1f", currentWeather.temperature);
+                my_log_f("Feels Like: %.1f", currentWeather.apparentTemperature);
+                my_log_f("Humidity: %.0f%%", currentWeather.humidity);
+                my_log_f("Wind: %.1f @ %.0f°", currentWeather.windSpeed, currentWeather.windDir);
+                my_log_f("Weather Code: %d", currentWeather.weatherCode);
 
                 // Extract sunrise/sunset
                 String sunriseStr = doc["daily"]["sunrise"][0].as<String>();
@@ -84,7 +85,7 @@ bool fetchWeatherData(float latitude, float longitude) {
                 JsonArray hourlyUV = doc["hourly"]["uv_index"];
                 JsonArray hourlyWeatherCode = doc["hourly"]["weather_code"];
 
-                Serial.printf("Current hour: %d, using as offset into API arrays\n", currentHourOffset);
+                my_log_f("Current hour: %d, using as offset into API arrays", currentHourOffset);
 
                 for (int i = 0; i < MAX_HOURLY && (currentHourOffset + i) < hourlyTemp.size(); i++) {
                     int apiIndex = currentHourOffset + i;
@@ -94,7 +95,7 @@ bool fetchWeatherData(float latitude, float longitude) {
                     currentWeather.hourly[i].pressure = hourlyPressure[apiIndex];
                     currentWeather.hourly[i].uvIndex = (apiIndex < hourlyUV.size()) ? hourlyUV[apiIndex].as<float>() : 0.0f;
                     currentWeather.hourly[i].weatherCode = hourlyWeatherCode[apiIndex];
-                    Serial.printf("Hour %d (API index %d) UV: %.1f\n", i, apiIndex, currentWeather.hourly[i].uvIndex);
+                    my_log_f("Hour %d (API index %d) UV: %.1f", i, apiIndex, currentWeather.hourly[i].uvIndex);
                 }
 
                 // Extract daily forecast
@@ -120,20 +121,20 @@ bool fetchWeatherData(float latitude, float longitude) {
                 }
 
                 http.end();
-                Serial.println("Weather fetch successful!");
+                my_log("Weather fetch successful!");
                 return true;
             } else {
-                Serial.printf("JSON parsing error: %s\n", error.c_str());
+                my_log_f("JSON parsing error: %s", error.c_str());
             }
         } else {
-            Serial.printf("HTTP error code: %d\n", httpCode);
+            my_log_f("HTTP error code: %d", httpCode);
         }
 
         http.end();
 
         // If this was the last retry, break
         if (retry == HTTP_RETRY_ATTEMPTS - 1) {
-            Serial.println("All retry attempts failed");
+            my_log("All retry attempts failed");
         }
     }
 
@@ -142,7 +143,7 @@ bool fetchWeatherData(float latitude, float longitude) {
 
 bool geocodeCity(String cityName, float &latitude, float &longitude) {
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("WiFi not connected");
+        my_log("WiFi not connected");
         return false;
     }
 
@@ -151,11 +152,11 @@ bool geocodeCity(String cityName, float &latitude, float &longitude) {
     url += urlEncode(cityName);
     url += "&count=1&language=en&format=json";
 
-    Serial.println("Geocoding city: " + cityName);
+    my_log("Geocoding city: " + cityName);
 
     for (int retry = 0; retry < HTTP_RETRY_ATTEMPTS; retry++) {
         if (retry > 0) {
-            Serial.printf("Geocode retry %d/%d...\n", retry + 1, HTTP_RETRY_ATTEMPTS);
+            my_log_f("Geocode retry %d/%d...", retry + 1, HTTP_RETRY_ATTEMPTS);
             delay(HTTP_RETRY_DELAY_MS);
         }
 
@@ -177,23 +178,23 @@ bool geocodeCity(String cityName, float &latitude, float &longitude) {
                 String foundCity = doc["results"][0]["name"].as<String>();
                 String country = doc["results"][0]["country"].as<String>();
 
-                Serial.printf("Found: %s, %s at %.4f, %.4f\n",
+                my_log_f("Found: %s, %s at %.4f, %.4f",
                              foundCity.c_str(), country.c_str(), latitude, longitude);
 
                 http.end();
                 return true;
             } else if (error) {
-                Serial.printf("JSON parsing error: %s\n", error.c_str());
+                my_log_f("JSON parsing error: %s", error.c_str());
             } else {
-                Serial.println("No results found for city");
+                my_log("No results found for city");
             }
         } else {
-            Serial.printf("HTTP error code: %d\n", httpCode);
+            my_log_f("HTTP error code: %d", httpCode);
         }
 
         http.end();
     }
 
-    Serial.println("Geocoding failed after all retries");
+    my_log("Geocoding failed after all retries");
     return false;
 }

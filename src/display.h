@@ -8,6 +8,7 @@
 void displayWeather();
 
 // Panel drawing functions
+void drawBigClock(int x, int y, int dx, int dy);
 void drawCurrentConditions(int x, int y, int dx, int dy);
 void drawSunInfo(int x, int y, int dx, int dy);
 void drawWindInfo(int x, int y, int dx, int dy);
@@ -19,7 +20,7 @@ void drawGraph(int x, int y, int dx, int dy, String title, int xMin, int xMax, f
 void drawTempGraph(int x, int y, int dx, int dy, String title, int xMin, int xMax, float yMin, float yMax, float highValues[], float lowValues[]);
 
 // Component drawing functions
-void drawIcon(int x, int y, const uint8_t *icon, int dx = 64, int dy = 64, bool highContrast = false);
+void drawIcon(int x, int y, const uint8_t *icon, int dx = 64, int dy = 64, bool highContrast = false, float scale = 1.0);
 void drawRSSI(int x, int y, int rssi);
 void drawBattery(int x, int y, int batteryPercent);
 void drawArrow(int x, int y, int asize, float aangle, int pwidth, int plength);

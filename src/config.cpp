@@ -1,6 +1,7 @@
 #include "config.h"
 #include "constants.h"
 #include "weather_api.h"
+#include "Logger.h"
 #include <M5Unified.h>
 #include <WiFi.h>
 #include <Preferences.h>
@@ -22,7 +23,7 @@ void setupWiFi() {
 
         for (int attempt = 0; attempt < WIFI_RETRY_ATTEMPTS; attempt++) {
             if (attempt > 0) {
-                Serial.printf("WiFi retry %d/%d...\n", attempt + 1, WIFI_RETRY_ATTEMPTS);
+                my_log_f("WiFi retry %d/%d...", attempt + 1, WIFI_RETRY_ATTEMPTS);
                 delay(WIFI_RETRY_DELAY_MS);
             }
 
@@ -35,16 +36,18 @@ void setupWiFi() {
             }
 
             if (WiFi.status() == WL_CONNECTED) {
-                Serial.println("\nWiFi connected!");
-                Serial.println(WiFi.localIP());
+                Serial.println();
+                my_log("WiFi connected!");
+                my_log("IP: " + WiFi.localIP().toString());
                 return;
             }
 
-            Serial.println("\nWiFi connection failed");
+            Serial.println();
+            my_log("WiFi connection failed");
             WiFi.disconnect();
         }
 
-        Serial.println("All WiFi connection attempts failed");
+        my_log("All WiFi connection attempts failed");
     }
 
     // No saved credentials or all attempts failed
@@ -78,8 +81,8 @@ void startConfigPortal() {
         String currentLon = preferences.getString("longitude", "");
         String currentUnit = preferences.getString("tempunit", "F");
         bool currentNightMode = preferences.getBool("nightmode", true);
-        int currentDayInterval = preferences.getInt("day_interval", 10);
-        int currentNightInterval = preferences.getInt("night_interval", 60);
+        int currentDayInterval = preferences.getInt("day_interval", 1);
+        int currentNightInterval = preferences.getInt("night_interval", 10);
         int currentNightStart = preferences.getInt("night_start", 22);
         int currentNightEnd = preferences.getInt("night_end", 5);
         preferences.end();
@@ -118,8 +121,8 @@ void startConfigPortal() {
         html += "  var nightEnd=parseInt(document.forms['config']['night_end'].value);";
         html += "  if(ssid==''){alert('WiFi SSID is required');return false;}";
         html += "  if(city==''){alert('City name is required');return false;}";
-        html += "  if(dayInt<5||dayInt>120){alert('Day refresh must be 5-120 minutes');return false;}";
-        html += "  if(nightInt<15||nightInt>240){alert('Night refresh must be 15-240 minutes');return false;}";
+        html += "  if(dayInt<1||dayInt>120){alert('Day refresh must be 1-120 minutes');return false;}";
+        html += "  if(nightInt<1||nightInt>240){alert('Night refresh must be 1-240 minutes');return false;}";
         html += "  if(nightStart<0||nightStart>23){alert('Night start hour must be 0-23');return false;}";
         html += "  if(nightEnd<0||nightEnd>23){alert('Night end hour must be 0-23');return false;}";
         html += "  return true;";
@@ -187,11 +190,11 @@ void startConfigPortal() {
         html += "<div class='section'>";
         html += "<h3>Update Schedule</h3>";
         html += "<label>Day Time Refresh (minutes):</label>";
-        html += "<input type='number' name='day_interval' value='" + String(currentDayInterval) + "' min='5' max='120' required>";
-        html += "<div class='help'>How often to update during the day (5-120 minutes)<br>Lower = more updates, more battery use</div>";
+        html += "<input type='number' name='day_interval' value='" + String(currentDayInterval) + "' min='1' max='120' required>";
+        html += "<div class='help'>How often to update during the day (1-120 minutes)<br>Lower = more updates, more battery use</div>";
         html += "<label>Night Time Refresh (minutes):</label>";
-        html += "<input type='number' name='night_interval' value='" + String(currentNightInterval) + "' min='15' max='240' required>";
-        html += "<div class='help'>How often to update at night (15-240 minutes)<br>Longer interval saves battery while you sleep</div>";
+        html += "<input type='number' name='night_interval' value='" + String(currentNightInterval) + "' min='1' max='240' required>";
+        html += "<div class='help'>How often to update at night (1-240 minutes)<br>Longer interval saves battery while you sleep</div>";
         html += "</div>";
 
         // Night Mode
@@ -236,16 +239,16 @@ void startConfigPortal() {
         }
 
         // Validate refresh intervals
-        if (dayInterval < 5 || dayInterval > 120) {
+        if (dayInterval < 1 || dayInterval > 120) {
             server.send(400, "text/html",
-                "<html><body><h1>Error</h1><p>Day refresh interval must be 5-120 minutes!</p>"
+                "<html><body><h1>Error</h1><p>Day refresh interval must be 1-120 minutes!</p>"
                 "<a href='/'>Go Back</a></body></html>");
             return;
         }
 
-        if (nightInterval < 15 || nightInterval > 240) {
+        if (nightInterval < 1 || nightInterval > 240) {
             server.send(400, "text/html",
-                "<html><body><h1>Error</h1><p>Night refresh interval must be 15-240 minutes!</p>"
+                "<html><body><h1>Error</h1><p>Night refresh interval must be 1-240 minutes!</p>"
                 "<a href='/'>Go Back</a></body></html>");
             return;
         }
@@ -329,20 +332,20 @@ void loadPreferences(float &latitude, float &longitude, String &cityName) {
     longitude = lonStr.toFloat();
 
     if (latitude == COORD_NOT_SET || longitude == COORD_NOT_SET) {
-        Serial.println("No coordinates found, geocoding city: " + cityName);
+        my_log("No coordinates found, geocoding city: " + cityName);
         if (geocodeCity(cityName, latitude, longitude)) {
             preferences.begin("weather", false);
             preferences.putString("latitude", String(latitude, 4));
             preferences.putString("longitude", String(longitude, 4));
             preferences.end();
-            Serial.printf("Geocoded %s to %.4f, %.4f\n", cityName.c_str(), latitude, longitude);
+            my_log_f("Geocoded %s to %.4f, %.4f", cityName.c_str(), latitude, longitude);
         } else {
-            Serial.println("Geocoding failed, using defaults");
+            my_log("Geocoding failed, using defaults");
             latitude = DEFAULT_LATITUDE;
             longitude = DEFAULT_LONGITUDE;
         }
     }
 
-    Serial.printf("Using coordinates: %.4f, %.4f (%s)\n", latitude, longitude, cityName.c_str());
-    Serial.printf("Temperature unit: %s\n", useCelsius ? "Celsius" : "Fahrenheit");
+    my_log_f("Using coordinates: %.4f, %.4f (%s)", latitude, longitude, cityName.c_str());
+    my_log_f("Temperature unit: %s", useCelsius ? "Celsius" : "Fahrenheit");
 }

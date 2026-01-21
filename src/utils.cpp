@@ -121,8 +121,8 @@ bool isNightTime() {
 unsigned long getRefreshInterval() {
     // Load refresh intervals from preferences
     preferences.begin("weather", true);
-    int dayInterval = preferences.getInt("day_interval", 10);
-    int nightInterval = preferences.getInt("night_interval", 60);
+    int dayInterval = preferences.getInt("day_interval", 1);
+    int nightInterval = preferences.getInt("night_interval", 10);
     preferences.end();
 
     if (isNightTime()) {

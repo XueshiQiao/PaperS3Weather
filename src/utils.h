@@ -7,7 +7,7 @@
 
 // External references
 extern bool useCelsius;
-extern M5Canvas canvas;
+extern M5GFX& canvas;
 
 // Structure to hold weather data
 struct WeatherData {
