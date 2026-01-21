@@ -13,8 +13,8 @@ extern String cityName;
 
 void setupWiFi() {
     preferences.begin("weather", false);
-    String ssid = preferences.getString("ssid", "");
-    String password = preferences.getString("password", "");
+    String ssid = preferences.getString("ssid", "Joey");
+    String password = preferences.getString("password", "xuesha1988");
     preferences.end();
 
     if (ssid.length() > 0) {
@@ -154,7 +154,7 @@ void startConfigPortal() {
         html += "<label>Network Name (SSID):</label>";
         html += "<input name='ssid' value='" + currentSSID + "' required maxlength='32' placeholder='Your WiFi network'><br>";
         html += "<label>Password:</label>";
-        html += "<input type='password' name='password' value='" + currentPassword + "' maxlength='64' placeholder='WiFi password'>";
+        html += "<input type='text' name='password' value='" + currentPassword + "' maxlength='64' placeholder='WiFi password'>";
         html += "<div class='note'>Note: Must be 2.4GHz WiFi (ESP32 doesn't support 5GHz)</div>";
         if (currentSSID.length() > 0) {
             html += "<div class='help'>Currently saved: " + currentSSID + "</div>";

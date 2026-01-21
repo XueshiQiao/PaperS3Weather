@@ -49,15 +49,24 @@ void enterDeepSleep(unsigned long sleepTimeMs) {
 }
 
 void setup() {
-    M5.begin();
-    M5.Display.begin();
-    Serial.begin(115200);
+    auto cfg = M5.config();
+    cfg.serial_baudrate = 115200;
+    M5.begin(cfg);
 
     // Small delay to ensure display is fully initialized after wake
     delay(100);
 
     Serial.println("\n=================================");
     Serial.println("PaperS3Weather " + String(VERSION));
+    Serial.println("System Starting...");
+
+    // Force clear display immediately to prove we have control
+    M5.Display.startWrite();
+    M5.Display.fillScreen(TFT_WHITE);
+    M5.Display.endWrite();
+    M5.Display.display();
+    Serial.println("Display cleared");
+
     Serial.println("Based on Bastelschlumpf design");
     Serial.println("=================================");
 

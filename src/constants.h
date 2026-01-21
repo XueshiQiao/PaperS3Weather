@@ -91,10 +91,10 @@
 #define MOON_PHASE_WANING_GIB 0.70
 #define MOON_PHASE_LAST_QTR 0.80
 
-// Default Coordinates (Auckland)
-#define DEFAULT_LATITUDE -36.8485
-#define DEFAULT_LONGITUDE 174.7633
-#define DEFAULT_CITY "Auckland"
+// Default Coordinates (Beijing)
+#define DEFAULT_LATITUDE 39.9042
+#define DEFAULT_LONGITUDE 116.4074
+#define DEFAULT_CITY "Beijing"
 
 // Special Values
 #define SENSOR_ERROR_VALUE -999.0
@@ -114,7 +114,7 @@
 // NTP Configuration
 #define NTP_SERVER_1 "pool.ntp.org"
 #define NTP_SERVER_2 "time.nist.gov"
-#define TIMEZONE_OFFSET_HOURS 13  // Auckland default
+#define TIMEZONE_OFFSET_HOURS 8  // Shanghai default
 
 // Color Definitions
 #ifndef TFT_WHITE
