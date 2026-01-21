@@ -348,7 +348,7 @@ void drawBigClock(int x, int y, int dx, int dy) {
 void drawCurrentConditions(int x, int y, int dx, int dy) {
     // Layout Constants
     int centerLine = x + dx / 2;
-    int contentCenterY = y + (dy / 2) + 15; // Moved content center down 15px
+    int contentCenterY = y + (dy / 2) + 35; // Moved content center down further (was +15)
 
     // --- ROW 1: Icon & Temp (Side by Side) ---
     // Icon Left, Temp Right. Bottom aligned.
