@@ -52,3 +52,7 @@ secrets.h
 *.bak
 *.backup
 *~
+
+# clangd
+.cache/
+compile_commands.json
