@@ -229,6 +229,29 @@ void setup() {
     my_log("Setup complete!");
 }
 
+bool checkTouchInTimeArea() {
+    auto touch = M5.Touch.getDetail();
+    if (!touch.isPressed()) {
+        return false;
+    }
+
+    int x = touch.x;
+    int y = touch.y;
+
+    int timePanelX = PANEL_SPACING;
+    int timePanelY = PANEL_TITLE_HEIGHT;
+    int timePanelWidth = (SCREEN_WIDTH - 30) / 2;
+    int timePanelHeight = 251;
+
+    if (x >= timePanelX && x <= timePanelX + timePanelWidth &&
+        y >= timePanelY && y <= timePanelY + timePanelHeight) {
+        my_log_f("Touch detected in time area at (%d, %d)", x, y);
+        return true;
+    }
+
+    return false;
+}
+
 void loop() {
     refreshWeather();
 
@@ -247,6 +270,19 @@ void loop() {
     my_log_f("Current time is: %s", isNightTime() ? "NIGHT" : "DAY");
     my_log_f("Refresh interval: %lu minutes", sleepTime / 60000);
     my_log("=================================");
+
+    my_log("Waiting for touch input...");
+    unsigned long touchStart = millis();
+    while (millis() - touchStart < 5000) {
+        if (checkTouchInTimeArea()) {
+            my_log("Touch in time area - refreshing time display only...");
+            displayWeather();
+            my_log("Time display refreshed!");
+            touchStart = millis();
+        }
+        delay(100);
+    }
+    my_log("No touch detected, entering sleep mode...");
 
     enterLightSleep(sleepTime);
 }
