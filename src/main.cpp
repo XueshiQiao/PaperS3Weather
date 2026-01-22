@@ -27,6 +27,8 @@ WeatherManager* weatherManager = nullptr;
 unsigned long lastRefreshTime = 0;
 int refreshCounter = 0;
 
+int qweatherIconToWMO(const String& iconCode);
+
 void mapQWeatherToWeatherData() {
     if (!weatherManager) return;
 
@@ -41,7 +43,7 @@ void mapQWeatherToWeatherData() {
     currentWeather.precipitation = qweather->precip;
 
     String iconCode = qweather->icon;
-    currentWeather.weatherCode = iconCode.toInt();
+    currentWeather.weatherCode = qweatherIconToWMO(iconCode);
 
     auto hourly = weatherManager->getHourlyWeathers();
     if (hourly) {
@@ -52,7 +54,7 @@ void mapQWeatherToWeatherData() {
             currentWeather.hourly[i].precip = (*hourly)[i].precip;
             currentWeather.hourly[i].pressure = (*hourly)[i].pressure;
             currentWeather.hourly[i].uvIndex = ((*hourly)[i].pop > 0) ? (*hourly)[i].pop / 100.0f : 0.0f;
-            currentWeather.hourly[i].weatherCode = (*hourly)[i].icon.toInt();
+            currentWeather.hourly[i].weatherCode = qweatherIconToWMO((*hourly)[i].icon);
         }
     }
 
