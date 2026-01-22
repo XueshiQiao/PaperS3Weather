@@ -4,6 +4,7 @@
 #include "Icons.h"
 #include <WiFi.h>
 #include "Logger.h"
+#include "weather.h"
 
 extern WeatherData currentWeather;
 // canvas is now extern from utils.h/main.cpp

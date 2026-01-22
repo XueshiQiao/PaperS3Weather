@@ -1,6 +1,5 @@
 #include "config.h"
 #include "constants.h"
-#include "weather_api.h"
 #include "Logger.h"
 #include <M5Unified.h>
 #include <WiFi.h>
@@ -331,20 +330,20 @@ void loadPreferences(float &latitude, float &longitude, String &cityName) {
     latitude = latStr.toFloat();
     longitude = lonStr.toFloat();
 
-    if (latitude == COORD_NOT_SET || longitude == COORD_NOT_SET) {
-        my_log("No coordinates found, geocoding city: " + cityName);
-        if (geocodeCity(cityName, latitude, longitude)) {
-            preferences.begin("weather", false);
-            preferences.putString("latitude", String(latitude, 4));
-            preferences.putString("longitude", String(longitude, 4));
-            preferences.end();
-            my_log_f("Geocoded %s to %.4f, %.4f", cityName.c_str(), latitude, longitude);
-        } else {
-            my_log("Geocoding failed, using defaults");
-            latitude = DEFAULT_LATITUDE;
-            longitude = DEFAULT_LONGITUDE;
-        }
-    }
+    // if (latitude == COORD_NOT_SET || longitude == COORD_NOT_SET) {
+    //     my_log("No coordinates found, geocoding city: " + cityName);
+    //     if (geocodeCity(cityName, latitude, longitude)) {
+    //         preferences.begin("weather", false);
+    //         preferences.putString("latitude", String(latitude, 4));
+    //         preferences.putString("longitude", String(longitude, 4));
+    //         preferences.end();
+    //         my_log_f("Geocoded %s to %.4f, %.4f", cityName.c_str(), latitude, longitude);
+    //     } else {
+    //         my_log("Geocoding failed, using defaults");
+    //         latitude = DEFAULT_LATITUDE;
+    //         longitude = DEFAULT_LONGITUDE;
+    //     }
+    // }
 
     my_log_f("Using coordinates: %.4f, %.4f (%s)", latitude, longitude, cityName.c_str());
     my_log_f("Temperature unit: %s", useCelsius ? "Celsius" : "Fahrenheit");
